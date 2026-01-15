@@ -7,7 +7,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from mcp.server.fastmcp import FastMCP
 
-from .garmin_auth import GarminAuthError, get_logged_in_client, resume_mfa_login
+from src.garmin_auth import GarminAuthError, get_logged_in_client, resume_mfa_login
 
 # Stateless Streamable HTTP is recommended for scalable deployments
 mcp = FastMCP(
