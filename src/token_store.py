@@ -1,6 +1,7 @@
 import base64
 import io
 import os
+import secrets
 import zipfile
 from typing import Optional
 
@@ -26,6 +27,37 @@ def get_redis() -> Optional[Redis]:
     if not url or not token:
         return None
     return Redis(url=url, token=token)
+
+
+def _nonce_ttl_seconds() -> int:
+    raw = os.getenv("AUTH_NONCE_TTL_SECONDS", "300")
+    try:
+        return max(1, int(raw))
+    except ValueError:
+        return 300
+
+
+async def issue_nonce(address: str) -> Optional[str]:
+    r = get_redis()
+    if not r:
+        return None
+    nonce = secrets.token_urlsafe(32)
+    addr = address.lower()
+    await r.set(f"auth:nonce:{addr}", nonce, ex=_nonce_ttl_seconds())
+    return nonce
+
+
+async def consume_nonce(address: str, nonce: str) -> bool:
+    r = get_redis()
+    if not r:
+        return False
+    addr = address.lower()
+    key = f"auth:nonce:{addr}"
+    existing = await r.get(key)
+    if not existing or existing != nonce:
+        return False
+    await r.delete(key)
+    return True
 
 
 def zip_dir_to_b64(dir_path: str) -> str:

@@ -5,9 +5,12 @@ from typing import Optional
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from mcp.server.fastmcp import FastMCP
 
 from src.garmin_auth import GarminAuthError, get_logged_in_client, resume_mfa_login
+from src.token_store import issue_nonce
+from src.wallet_verify import verify_wallet_headers
 
 # Stateless Streamable HTTP is recommended for scalable deployments
 mcp = FastMCP(
@@ -47,17 +50,38 @@ MCP_API_KEY = os.getenv("MCP_API_KEY")  # optional bearer token gate
 
 @app.middleware("http")
 async def mcp_auth_middleware(request: Request, call_next):
-    if MCP_API_KEY and request.url.path.startswith("/api/mcp"):
+    if request.url.path == "/auth/nonce":
+        return await call_next(request)
+    if request.url.path.startswith("/api/mcp"):
         auth = request.headers.get("authorization", "")
-        if auth != f"Bearer {MCP_API_KEY}":
-            # keep it simple; MCP clients can send Authorization header
-            return FastAPI.responses.JSONResponse({"error": "unauthorized"}, status_code=401)
+        if MCP_API_KEY and auth == f"Bearer {MCP_API_KEY}":
+            return await call_next(request)
+        address = request.headers.get("x-medoxie-address")
+        message = request.headers.get("x-medoxie-message")
+        signature = request.headers.get("x-medoxie-signature")
+        if not address or not message or not signature:
+            return JSONResponse(
+                {"error": "unauthorized", "reason": "missing_wallet_headers"},
+                status_code=401,
+            )
+        ok, reason = await verify_wallet_headers(address, message, signature)
+        if not ok:
+            return JSONResponse({"error": "unauthorized", "reason": reason}, status_code=401)
     return await call_next(request)
 
 
 @app.get("/")
 def health():
     return {"ok": True, "mcp": "/api/mcp"}
+
+
+@app.get("/auth/nonce")
+async def auth_nonce(address: str):
+    nonce = await issue_nonce(address)
+    headers = {"Cache-Control": "no-store"}
+    if not nonce:
+        return JSONResponse({"error": "nonce_unavailable"}, status_code=500, headers=headers)
+    return JSONResponse({"nonce": nonce}, headers=headers)
 
 
 # Mount MCP server at /api/mcp

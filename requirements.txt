@@ -2,3 +2,4 @@ fastapi>=0.110
 mcp>=1.8.0
 garminconnect>=0.2.30
 upstash-redis>=1.2.0
+eth-account>=0.11.0
