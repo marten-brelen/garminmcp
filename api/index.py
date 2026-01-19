@@ -21,7 +21,7 @@ mcp = FastMCP(
 )
 
 
-def _parse_origins() -> list[str]:
+def _cors_config() -> tuple[list[str], bool]:
     raw = os.getenv("CORS_ALLOW_ORIGINS", "*")
     local = {
         "http://localhost:3000",
@@ -30,9 +30,10 @@ def _parse_origins() -> list[str]:
         "https://www.medoxie.com",
     }
     if raw.strip() == "*":
-        return ["*"]
+        # Avoid "*" + allow_credentials=True which yields no ACAO header.
+        return sorted(local), True
     origins = {o.strip() for o in raw.split(",") if o.strip()}
-    return sorted(origins | local)
+    return sorted(origins | local), True
 
 
 @contextlib.asynccontextmanager
@@ -45,10 +46,11 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 
 # CORS: expose Mcp-Session-Id header for browser-based clients
+_allow_origins, _allow_credentials = _cors_config()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=_parse_origins(),
-    allow_credentials=True,
+    allow_origins=_allow_origins,
+    allow_credentials=_allow_credentials,
     allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
     allow_headers=["*"],
     expose_headers=["Mcp-Session-Id"],
