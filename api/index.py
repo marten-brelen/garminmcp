@@ -23,7 +23,16 @@ mcp = FastMCP(
 
 def _parse_origins() -> list[str]:
     raw = os.getenv("CORS_ALLOW_ORIGINS", "*")
-    return ["*"] if raw.strip() == "*" else [o.strip() for o in raw.split(",") if o.strip()]
+    local = {
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "https://medoxie.com",
+        "https://www.medoxie.com",
+    }
+    if raw.strip() == "*":
+        return ["*"]
+    origins = {o.strip() for o in raw.split(",") if o.strip()}
+    return sorted(origins | local)
 
 
 @contextlib.asynccontextmanager
