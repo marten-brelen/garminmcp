@@ -1,4 +1,6 @@
 import base64
+import hashlib
+import hmac
 import io
 import os
 import secrets
@@ -40,6 +42,35 @@ def _nonce_ttl_seconds() -> int:
         return 300
 
 
+def _nonce_secret() -> str:
+    return os.getenv("AUTH_NONCE_SECRET", "").strip()
+
+
+def _sign_nonce_token(address: str, nonce: str, issued_at: int, secret: str) -> str:
+    payload = f"{address}:{nonce}:{issued_at}"
+    signature = hmac.new(secret.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256).hexdigest()
+    return f"{nonce}.{issued_at}.{signature}"
+
+
+def _verify_nonce_token(address: str, token: str, secret: str) -> bool:
+    parts = token.split(".")
+    if len(parts) != 3:
+        return False
+    nonce, issued_raw, signature = parts
+    try:
+        issued_at = int(issued_raw)
+    except ValueError:
+        return False
+    payload = f"{address}:{nonce}:{issued_at}"
+    expected = hmac.new(secret.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(expected, signature):
+        return False
+    ttl = _nonce_ttl_seconds()
+    if time.time() - issued_at > ttl:
+        return False
+    return True
+
+
 async def issue_nonce(address: str) -> Optional[str]:
     r = get_redis()
     nonce = secrets.token_urlsafe(32)
@@ -47,9 +78,14 @@ async def issue_nonce(address: str) -> Optional[str]:
     ttl = _nonce_ttl_seconds()
     if r:
         await r.set(f"auth:nonce:{addr}", nonce, ex=ttl)
+        return nonce
+    secret = _nonce_secret()
+    if secret:
+        issued_at = int(time.time())
+        return _sign_nonce_token(addr, nonce, issued_at, secret)
     else:
         _IN_MEMORY_NONCES[addr] = (nonce, time.time() + ttl)
-    return nonce
+        return nonce
 
 
 async def consume_nonce(address: str, nonce: str) -> bool:
@@ -62,6 +98,9 @@ async def consume_nonce(address: str, nonce: str) -> bool:
             return False
         await r.delete(key)
         return True
+    secret = _nonce_secret()
+    if secret:
+        return _verify_nonce_token(addr, nonce, secret)
     entry = _IN_MEMORY_NONCES.get(addr)
     if not entry:
         return False
