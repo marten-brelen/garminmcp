@@ -55,6 +55,8 @@ async def verify_wallet_headers(
     message: str,
     signature: str,
 ) -> Tuple[bool, str]:
+    # Allow clients to send literal "\n" in headers.
+    message = message.replace("\\n", "\n")
     try:
         fields = _parse_message_fields(message)
     except ValueError as e:
