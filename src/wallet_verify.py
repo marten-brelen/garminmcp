@@ -55,10 +55,12 @@ async def verify_wallet_headers(
     message: str,
     signature: str,
 ) -> Tuple[bool, str]:
-    # Allow clients to send literal "\n" in headers.
-    message = message.replace("\\n", "\n")
+    # Keep the raw header value for signature verification.
+    raw_message = message
+    # Allow clients to send literal "\n" in headers for parsing.
+    parsed_message = message.replace("\\n", "\n")
     try:
-        fields = _parse_message_fields(message)
+        fields = _parse_message_fields(parsed_message)
     except ValueError as e:
         return False, str(e)
 
@@ -68,7 +70,7 @@ async def verify_wallet_headers(
         return False, "address_mismatch"
 
     try:
-        recovered = Account.recover_message(encode_defunct(text=message), signature=signature)
+        recovered = Account.recover_message(encode_defunct(text=raw_message), signature=signature)
     except Exception:
         return False, "bad_signature"
     if recovered.lower() != header_address:
