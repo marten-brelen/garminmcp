@@ -59,11 +59,20 @@ app.add_middleware(
 MCP_API_KEY = os.getenv("MCP_API_KEY")  # optional bearer token gate
 
 
-@app.middleware("http")
-async def mcp_auth_middleware(request: Request, call_next):
-    if request.url.path == "/auth/nonce":
-        return await call_next(request)
-    if request.url.path.startswith("/api/mcp"):
+def create_mcp_subapp() -> FastAPI:
+    subapp = FastAPI()
+    _allow_origins, _allow_credentials = _cors_config()
+    subapp.add_middleware(
+        CORSMiddleware,
+        allow_origins=_allow_origins,
+        allow_credentials=_allow_credentials,
+        allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+        allow_headers=["*"],
+        expose_headers=["Mcp-Session-Id"],
+    )
+
+    @subapp.middleware("http")
+    async def mcp_auth_middleware(request: Request, call_next):
         auth = request.headers.get("authorization", "")
         if MCP_API_KEY and auth == f"Bearer {MCP_API_KEY}":
             return await call_next(request)
@@ -78,7 +87,11 @@ async def mcp_auth_middleware(request: Request, call_next):
         ok, reason = await verify_wallet_headers(address, message, signature)
         if not ok:
             return JSONResponse({"error": "unauthorized", "reason": reason}, status_code=401)
-    return await call_next(request)
+        return await call_next(request)
+
+    # Mount MCP ASGI app at root of the subapp
+    subapp.mount("/", mcp.streamable_http_app())
+    return subapp
 
 
 @app.get("/")
@@ -95,8 +108,8 @@ async def auth_nonce(address: str):
     return JSONResponse({"nonce": nonce}, headers=headers)
 
 
-# Mount MCP server at /api/mcp
-app.mount("/api/mcp", mcp.streamable_http_app())
+# Mount MCP server at /api/mcp with its own CORS/auth middleware
+app.mount("/api/mcp", create_mcp_subapp())
 
 
 # -----------------------
