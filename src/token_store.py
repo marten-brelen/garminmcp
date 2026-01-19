@@ -2,10 +2,13 @@ import base64
 import io
 import os
 import secrets
+import time
 import zipfile
 from typing import Optional
 
 from upstash_redis.asyncio import Redis
+
+_IN_MEMORY_NONCES: dict[str, tuple[str, float]] = {}
 
 
 def _env_first(*names: str) -> Optional[str]:
@@ -39,24 +42,36 @@ def _nonce_ttl_seconds() -> int:
 
 async def issue_nonce(address: str) -> Optional[str]:
     r = get_redis()
-    if not r:
-        return None
     nonce = secrets.token_urlsafe(32)
     addr = address.lower()
-    await r.set(f"auth:nonce:{addr}", nonce, ex=_nonce_ttl_seconds())
+    ttl = _nonce_ttl_seconds()
+    if r:
+        await r.set(f"auth:nonce:{addr}", nonce, ex=ttl)
+    else:
+        _IN_MEMORY_NONCES[addr] = (nonce, time.time() + ttl)
     return nonce
 
 
 async def consume_nonce(address: str, nonce: str) -> bool:
     r = get_redis()
-    if not r:
-        return False
     addr = address.lower()
-    key = f"auth:nonce:{addr}"
-    existing = await r.get(key)
-    if not existing or existing != nonce:
+    if r:
+        key = f"auth:nonce:{addr}"
+        existing = await r.get(key)
+        if not existing or existing != nonce:
+            return False
+        await r.delete(key)
+        return True
+    entry = _IN_MEMORY_NONCES.get(addr)
+    if not entry:
         return False
-    await r.delete(key)
+    stored, expires_at = entry
+    if time.time() > expires_at:
+        _IN_MEMORY_NONCES.pop(addr, None)
+        return False
+    if stored != nonce:
+        return False
+    _IN_MEMORY_NONCES.pop(addr, None)
     return True
 
 
