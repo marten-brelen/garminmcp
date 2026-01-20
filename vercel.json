@@ -14,6 +14,7 @@
     }
   ],
   "rewrites": [
-    { "source": "/auth/nonce", "destination": "/api/auth/nonce" }
+    { "source": "/auth/nonce", "destination": "/api/auth/nonce" },
+    { "source": "/api/mcp/", "destination": "/api/mcp" }
   ]
 }
