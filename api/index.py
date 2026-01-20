@@ -43,7 +43,7 @@ async def lifespan(app: FastAPI):
         yield
 
 
-app = FastAPI(lifespan=lifespan)
+app = FastAPI(lifespan=lifespan, redirect_slashes=False)
 
 # CORS: expose Mcp-Session-Id header for browser-based clients
 _allow_origins, _allow_credentials = _cors_config()
@@ -110,6 +110,7 @@ async def auth_nonce(address: str):
 
 # Mount MCP server at /api/mcp with its own CORS/auth middleware
 app.mount("/api/mcp", create_mcp_subapp())
+app.mount("/api/mcp/", create_mcp_subapp())
 
 
 # -----------------------
