@@ -1,7 +1,7 @@
 {
   "headers": [
     {
-      "source": "/api/index/auth/nonce",
+      "source": "/api/auth/nonce",
       "headers": [
         { "key": "Access-Control-Allow-Origin", "value": "http://localhost:3000" },
         { "key": "Access-Control-Allow-Methods", "value": "GET, OPTIONS" },
@@ -14,6 +14,6 @@
     }
   ],
   "rewrites": [
-    { "source": "/auth/nonce", "destination": "/api/index/auth/nonce" }
+    { "source": "/auth/nonce", "destination": "/api/auth/nonce" }
   ]
 }
