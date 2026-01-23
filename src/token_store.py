@@ -4,8 +4,10 @@ import hmac
 import io
 import os
 import secrets
+import tempfile
 import time
 import zipfile
+from pathlib import Path
 from typing import Optional
 
 from upstash_redis.asyncio import Redis
@@ -32,6 +34,21 @@ def get_redis() -> Optional[Redis]:
     if not url or not token:
         return None
     return Redis(url=url, token=token)
+
+
+def _token_store_dir() -> Path:
+    base = os.getenv("TOKEN_STORE_DIR", "").strip()
+    if base:
+        path = Path(base)
+    else:
+        path = Path(tempfile.gettempdir()) / "garmin_tokens"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _token_file_path(user_id: str) -> Path:
+    digest = hashlib.sha256(user_id.encode("utf-8")).hexdigest()
+    return _token_store_dir() / f"{digest}.b64"
 
 
 def _nonce_ttl_seconds() -> int:
@@ -133,13 +150,20 @@ def b64_to_dir(b64: str, dir_path: str) -> None:
 
 async def load_tokens(user_id: str) -> Optional[str]:
     r = get_redis()
-    if not r:
+    if r:
+        return await r.get(f"garmin:tokens:{user_id}")
+    path = _token_file_path(user_id)
+    if not path.exists():
         return None
-    return await r.get(f"garmin:tokens:{user_id}")
+    return path.read_text(encoding="utf-8").strip()
 
 
 async def save_tokens(user_id: str, b64zip: str, ttl_seconds: int = 60 * 60 * 24 * 365) -> None:
     r = get_redis()
-    if not r:
+    if r:
+        await r.set(f"garmin:tokens:{user_id}", b64zip, ex=ttl_seconds)
         return
-    await r.set(f"garmin:tokens:{user_id}", b64zip, ex=ttl_seconds)
+    path = _token_file_path(user_id)
+    tmp_path = path.with_suffix(".tmp")
+    tmp_path.write_text(b64zip, encoding="utf-8")
+    tmp_path.replace(path)
