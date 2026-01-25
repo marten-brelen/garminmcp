@@ -3,3 +3,5 @@ mcp>=1.8.0
 garminconnect>=0.2.30
 upstash-redis>=1.2.0
 eth-account>=0.11.0
+web3>=6.0.0
+requests>=2.31.0

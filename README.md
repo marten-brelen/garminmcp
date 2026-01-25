@@ -26,6 +26,25 @@ uvicorn api.index:app --reload
 
 ### REST endpoints
 
+### Authentication headers (required)
+
+Every request to `/auth/start`, `/auth/finish`, `/sleep`, and `/activities` must include:
+
+- `x-medoxie-address`
+- `x-medoxie-profile-id`
+- `x-medoxie-timestamp` (ms)
+- `x-medoxie-message` (base64-encoded message)
+- `x-medoxie-signature`
+
+Signed message format (before base64 encoding):
+```
+Medoxie Garmin API Access
+address: 0x...
+profileId: 0x...
+timestamp: 1234567890123
+path: /sleep
+```
+
 #### POST `/auth/start`
 Body:
 ```json
@@ -49,7 +68,7 @@ Response:
 
 #### GET `/sleep`
 Query params:
-- `user_id` (required)
+- `user_id` (optional, ignored)
 - `date` (YYYY-MM-DD) or `startDate`/`endDate` (YYYY-MM-DD)
 
 Example:
@@ -59,7 +78,7 @@ curl "http://localhost:8000/sleep?user_id=user-123&date=2024-01-01"
 
 #### GET `/activities`
 Query params:
-- `user_id` (required)
+- `user_id` (optional, ignored)
 - `limit` (optional, default 20)
 - `startDate`/`endDate` (YYYY-MM-DD)
 

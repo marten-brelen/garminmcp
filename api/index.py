@@ -9,6 +9,10 @@ from pydantic import BaseModel
 
 from src.garmin_auth import GarminAuthError, get_logged_in_client, resume_mfa_login, start_login
 from src.token_store import issue_nonce
+from lib.garmin.auth import GarminAuthError as HeaderAuthError
+from lib.garmin.auth import verify_garmin_auth
+from lib.garmin.lens_verification import verify_lens_profile_ownership
+from lib.garmin.user_id import resolve_user_id_from_profile
 
 
 def _cors_config() -> tuple[list[str], bool]:
@@ -74,13 +78,15 @@ async def auth_nonce(address: str):
 class AuthStartRequest(BaseModel):
     email: str
     password: str
-    user_id: str
+
+    model_config = {"extra": "ignore"}
 
 
 class AuthFinishRequest(BaseModel):
-    user_id: str
     mfa_code: str
     mfa_token: str
+
+    model_config = {"extra": "ignore"}
 
 
 def _parse_date(raw: str) -> date:
@@ -98,17 +104,54 @@ def _date_range(start: date, end: date) -> list[str]:
 
 
 @app.post("/auth/start")
-async def auth_start(payload: AuthStartRequest):
+async def auth_start(request: Request, payload: AuthStartRequest):
     try:
-        return await start_login(payload.user_id, payload.email, payload.password)
+        auth = verify_garmin_auth(request.headers, request.url.path)
+    except HeaderAuthError as e:
+        raise HTTPException(status_code=401, detail={"error": "unauthorized", "message": str(e)})
+
+    if not verify_lens_profile_ownership(auth["address"], auth["profileId"]):
+        raise HTTPException(
+            status_code=403,
+            detail={"error": "unauthorized", "message": "Lens profile not owned by wallet"},
+        )
+    user_id = resolve_user_id_from_profile(auth["profileId"])
+    if not user_id:
+        raise HTTPException(
+            status_code=404,
+            detail={"error": "user_not_found", "message": "No Garmin email for profile"},
+        )
+    if payload.email.lower() != user_id.lower():
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "invalid_request", "message": "Email does not match profile"},
+        )
+    try:
+        return await start_login(user_id, payload.email, payload.password)
     except GarminAuthError as e:
         return JSONResponse({"status": "error", "message": str(e)}, status_code=400)
 
 
 @app.post("/auth/finish")
-async def auth_finish(payload: AuthFinishRequest):
+async def auth_finish(request: Request, payload: AuthFinishRequest):
     try:
-        await resume_mfa_login(payload.user_id, payload.mfa_token, payload.mfa_code)
+        auth = verify_garmin_auth(request.headers, request.url.path)
+    except HeaderAuthError as e:
+        raise HTTPException(status_code=401, detail={"error": "unauthorized", "message": str(e)})
+
+    if not verify_lens_profile_ownership(auth["address"], auth["profileId"]):
+        raise HTTPException(
+            status_code=403,
+            detail={"error": "unauthorized", "message": "Lens profile not owned by wallet"},
+        )
+    user_id = resolve_user_id_from_profile(auth["profileId"])
+    if not user_id:
+        raise HTTPException(
+            status_code=404,
+            detail={"error": "user_not_found", "message": "No Garmin email for profile"},
+        )
+    try:
+        await resume_mfa_login(user_id, payload.mfa_token, payload.mfa_code)
         return {"status": "ok"}
     except GarminAuthError as e:
         return JSONResponse({"status": "error", "message": str(e)}, status_code=400)
@@ -116,11 +159,28 @@ async def auth_finish(payload: AuthFinishRequest):
 
 @app.get("/sleep")
 async def sleep_data(
-    user_id: str = Query(...),
+    request: Request,
+    user_id: Optional[str] = Query(None),
     date_value: Optional[str] = Query(None, alias="date"),
     start_date: Optional[str] = Query(None, alias="startDate"),
     end_date: Optional[str] = Query(None, alias="endDate"),
 ):
+    try:
+        auth = verify_garmin_auth(request.headers, request.url.path)
+    except HeaderAuthError as e:
+        raise HTTPException(status_code=401, detail={"error": "unauthorized", "message": str(e)})
+
+    if not verify_lens_profile_ownership(auth["address"], auth["profileId"]):
+        raise HTTPException(
+            status_code=403,
+            detail={"error": "unauthorized", "message": "Lens profile not owned by wallet"},
+        )
+    user_id = resolve_user_id_from_profile(auth["profileId"])
+    if not user_id:
+        raise HTTPException(
+            status_code=404,
+            detail={"error": "user_not_found", "message": "No Garmin email for profile"},
+        )
     try:
         g, _ = await get_logged_in_client(user_id=user_id)
     except GarminAuthError as e:
@@ -138,11 +198,28 @@ async def sleep_data(
 
 @app.get("/activities")
 async def activities(
-    user_id: str = Query(...),
+    request: Request,
+    user_id: Optional[str] = Query(None),
     limit: int = Query(20, ge=1, le=100),
     start_date: Optional[str] = Query(None, alias="startDate"),
     end_date: Optional[str] = Query(None, alias="endDate"),
 ):
+    try:
+        auth = verify_garmin_auth(request.headers, request.url.path)
+    except HeaderAuthError as e:
+        raise HTTPException(status_code=401, detail={"error": "unauthorized", "message": str(e)})
+
+    if not verify_lens_profile_ownership(auth["address"], auth["profileId"]):
+        raise HTTPException(
+            status_code=403,
+            detail={"error": "unauthorized", "message": "Lens profile not owned by wallet"},
+        )
+    user_id = resolve_user_id_from_profile(auth["profileId"])
+    if not user_id:
+        raise HTTPException(
+            status_code=404,
+            detail={"error": "user_not_found", "message": "No Garmin email for profile"},
+        )
     try:
         g, _ = await get_logged_in_client(user_id=user_id)
     except GarminAuthError as e:
